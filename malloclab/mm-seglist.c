@@ -2,7 +2,7 @@
  * mm.c
  * pyadapad - Prajwal Yadapadithaya
  *
- * Implementation of malloc using explicit list, first fit with boundary tag coalescing.
+ * Implementation of malloc using segregated list, first fit with boundary tag coalescing.
  */
 
 #include <assert.h>
