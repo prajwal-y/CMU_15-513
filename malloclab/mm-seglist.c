@@ -48,7 +48,7 @@
 /*Defining constants and macros that will be used in malloc implementation*/
 #define WSIZE 4
 #define DSIZE 8
-#define CHUNKSIZE (1<<12)
+#define CHUNKSIZE (1<<8)
 
 #define MAX(x,y) ((x > y) ? (x) : (y))
 #define MIN(x,y) ((x < y) ? (x) : (y))
@@ -182,11 +182,6 @@ static inline uint32_t* block_next(uint32_t* const block) {
     return block + (block_size(block)/WSIZE);
 }
 
-//Return correct address (Since we are using only 32 bits to calclulate addresses
-/*static inline uint32_t* fixAddress(unsigned long addr) {
-    return (uint32_t *)(((unsigned long)1 << 35) | addr);
-}*/
-
 //Get the index of the segregated list in the prologue header from the blocksize
 static inline unsigned int getSegListIndex(unsigned int blocksize) {
     return 1 + (blocksize>=32) + (blocksize>=64) + (blocksize>=128) + (blocksize>=256) + (blocksize>=512) + (blocksize>=1024) + (blocksize>=2048) + (blocksize>=4096);
@@ -204,20 +199,21 @@ static inline void *placeFreeBlock(uint32_t* const block) {
 
     uint32_t *lptr_next = fixAddress((unsigned long)*ptr);
     uint32_t *lptr_prev = ptr;
-    unsigned int bsize = block_size(lptr_next);
+    //unsigned int bsize = block_size(lptr_next);
    
     //Find the position where the new block needs to be placed (based on address ordering) 
-    while(block < lptr_next) {
+    //while(block < lptr_next && bsize > 0) {
+    /*while(size > bsize && bsize > 0) {
 	lptr_prev = lptr_next;
 	lptr_next = fixAddress((unsigned long)*(lptr_next + 1));
 	bsize = block_size(lptr_next);
-    }
+    }*/
     //Set the next and prev pointers for the block
     PUT(block + 1, (int)(unsigned long)lptr_next);
     PUT(block + 2, (int)(unsigned long)lptr_prev);
 
     //Set the next pointer of the previous block
-    if((lptr_prev > heap_ptr) && (lptr_prev < (heap_ptr + 11)))
+    if((lptr_prev > heap_ptr) && (lptr_prev < (heap_ptr + 10)))
 	PUT(lptr_prev, (int)(unsigned long)block);
     else
 	PUT(lptr_prev + 1, (int)(unsigned long)block);
@@ -303,24 +299,6 @@ static inline void *extend_heap(size_t words) {
     return coalesce(block);
 }
 
-//Find the block in a specified list based on best fit approach
-/*static inline void *find_in_list(uint32_t *block, size_t size) {
-    unsigned int bsize = block_size(block);
-    uint32_t *ptr = block;
-    uint32_t *ret = NULL;
-    unsigned int dif = bsize;
-    while(bsize > 0) {
-	if(((bsize-size) < dif) && !block_free(ptr)) { //Return the best block which fits the request
-	    dif = bsize - size;
-	    ret = (void *)block_mem(ptr);
-	    //return (void *)block_mem(ptr);
-	}
-	ptr = fixAddress((unsigned long)(*(ptr + 1)));
-	bsize = block_size(ptr);
-    }
-    return ret;
-}*/
-
 //Find the block in a specified list
 static inline void *find_in_list(uint32_t *block, size_t size) {
     unsigned int bsize = block_size(block);
@@ -401,6 +379,13 @@ static inline void place(void *bp, size_t size) {
     }
 }
 
+static inline size_t getMallocSize(size_t size) {
+    if(size <= DSIZE)
+        return (2*DSIZE);
+    else
+        return (DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE));
+}
+
 /*
  *  Malloc Implementation
  *  ---------------------
@@ -449,10 +434,7 @@ void *malloc (size_t size) {
     if(size == 0)
 	return NULL;
 
-    if(size <= DSIZE)
-	a_size = 2*DSIZE;
-    else
-	a_size = DSIZE * ((size + (DSIZE) + (DSIZE - 1)) / DSIZE);
+    a_size = getMallocSize(size);
 
     checkheap(1);
     bp = find_fit(a_size);
@@ -500,18 +482,30 @@ void *realloc(void *oldptr, size_t size) {
     if(oldptr == NULL)
 	return malloc(size);
 
-    newptr = malloc(size);
-    if(!newptr)
-	return 0;
-
     oldsize = block_size((uint32_t *)oldptr-1);
-    if(size < oldsize)
+    size_t newsize = getMallocSize(size);
+
+    if(newsize == oldsize)
+	return oldptr;
+    else if((int)(oldsize - newsize) >= 2*DSIZE) {
+	uint32_t* oldheader = (uint32_t *)oldptr -1;
+	PUT(oldheader, PACK(newsize, 1));
+	PUT(get_footer_el(oldheader), PACK(newsize, 1));
+	uint32_t* newheader = get_footer_el(oldheader) + 1;
+	PUT(newheader, PACK((oldsize - newsize), 0));
+	PUT(get_footer_el(newheader), PACK((oldsize - newsize), 0));
+	coalesce(newheader);
+	return oldptr;
+    }
+    else {
 	oldsize = size;
-    memcpy(newptr, oldptr, oldsize);
-
-    free(oldptr);
-
-    return newptr;
+	newptr = malloc(size);
+	if(!newptr)
+	    return 0;
+	memcpy(newptr, oldptr, oldsize);
+	free(oldptr);
+	return newptr;
+    }
 }
 
 /*
@@ -538,7 +532,6 @@ int mm_checkheap(int verbose) {
 	ptr = ptr + 1;
 	printf("List index: %d\n", i);
 	uint32_t *listptr = fixAddress((unsigned long)*ptr);
-	//printf("listptr is %p\n", (void *)listptr);
         if(block_free(listptr)) {
 	    printf("List: %p\n", (void *)listptr);
 	    printf("(nil)\n\n");
