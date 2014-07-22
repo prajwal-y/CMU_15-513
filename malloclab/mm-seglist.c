@@ -2,7 +2,16 @@
  * mm.c
  * pyadapad - Prajwal Yadapadithaya
  *
- * Implementation of malloc using segregated list, first fit with boundary tag coalescing.
+ * Implementation of malloc using segregated list (List of explicit lists using doubly linked lists), first fit with boundary tag coalescing.
+ *
+ * Each block is surrounded by a header and a footer which encapsulates the size and allocated info of the block.
+ * The prologue block(Initialized in mm_init) has an array of pointers pointing to the first block in each list. 
+ * The last block in each list points to the epilogue block.
+ * In each list, free blocks are placed at the beginning of the list, and while searching for a block, first fit is followed.
+ * Coalescing is done(if possible) whenever a block is free'd.
+ *
+ * Minimum block size is 16 bytes.
+ *
  */
 
 #include <assert.h>
@@ -60,7 +69,7 @@
 
 #define fixAddress(addr) (uint32_t *)(((unsigned long)1 << 35) | addr)
 
-static uint32_t *heap_ptr;
+static uint32_t *heap_ptr; //Pointer which holds the starting address of the prologue
 
 /*
  *  Helper functions
@@ -86,9 +95,6 @@ static int in_heap(const void* p) {
 /*
  *  Block Functions
  *  ---------------
- *  TODO: Add your comment describing block functions here.
- *  The functions below act similar to the macros in the book, but calculate
- *  size in multiples of 4 bytes.
  */
 
 // Return the size of the given block in multiples of the word size
@@ -126,60 +132,12 @@ static inline uint32_t* block_mem(uint32_t* const block) {
     return block + 1;
 }
 
-//Return header of the current block
-static inline uint32_t* get_header(uint32_t* const bp) {
-    REQUIRES(bp != NULL);
-    REQUIRES(in_heap(bp));
-
-    return bp - 1;
-}
-
-//Return footer of the current block
-static inline uint32_t* get_footer(uint32_t* const bp) {
-    REQUIRES(bp != NULL);
-    REQUIRES(in_heap(bp));
-
-    return bp + (block_size(get_header(bp))/WSIZE) - 2;
-}
-
+//Get Footer of current block
 static inline uint32_t* get_footer_el(uint32_t* const block) {
     REQUIRES(block != NULL);
     REQUIRES(in_heap(block));
 
     return block + (block_size(block)/WSIZE) - 1;
-}
-
-//Return block pointer of the next block
-static inline uint32_t* next_bp(uint32_t* const bp) {
-    REQUIRES(bp != NULL);
-    REQUIRES(in_heap(bp));
-
-    return bp + (block_size(get_header(bp))/WSIZE);
-}
-
-//Returns block pointer of the previous block
-static inline uint32_t* prev_bp(uint32_t* const bp) {
-    REQUIRES(bp != NULL);
-    REQUIRES(in_heap(bp));
-
-    return bp - (block_size(get_header(bp) - 1)/WSIZE);
-}
-
-
-// Return the header to the previous block
-static inline uint32_t* block_prev(uint32_t* const block) {
-    REQUIRES(block != NULL);
-    REQUIRES(in_heap(block));
-
-    return block - (block_size(block - 1)/WSIZE);
-}
-
-// Return the header to the next block
-static inline uint32_t* block_next(uint32_t* const block) {
-    REQUIRES(block != NULL);
-    REQUIRES(in_heap(block));
-
-    return block + (block_size(block)/WSIZE);
 }
 
 //Get the index of the segregated list in the prologue header from the blocksize
@@ -199,16 +157,7 @@ static inline void *placeFreeBlock(uint32_t* const block) {
 
     uint32_t *lptr_next = fixAddress((unsigned long)*ptr);
     uint32_t *lptr_prev = ptr;
-    //unsigned int bsize = block_size(lptr_next);
-   
-    //Find the position where the new block needs to be placed (based on address ordering) 
-    //while(block < lptr_next && bsize > 0) {
-    /*while(size > bsize && bsize > 0) {
-	lptr_prev = lptr_next;
-	lptr_next = fixAddress((unsigned long)*(lptr_next + 1));
-	bsize = block_size(lptr_next);
-    }*/
-    //Set the next and prev pointers for the block
+    
     PUT(block + 1, (int)(unsigned long)lptr_next);
     PUT(block + 2, (int)(unsigned long)lptr_prev);
 
@@ -379,6 +328,7 @@ static inline void place(void *bp, size_t size) {
     }
 }
 
+//Get the actual size which will be allocated based on alignement and metadata requirements
 static inline size_t getMallocSize(size_t size) {
     if(size <= DSIZE)
         return (2*DSIZE);
@@ -402,6 +352,7 @@ int mm_init(void) {
 
     uint32_t ep = (uint32_t)(unsigned long)(heap_ptr + 12);
 
+    //Prologue header has starting pointers to all the lists. And all the lists end with epilogue
     PUT(heap_ptr, 0);
     PUT(heap_ptr + 1, PACK(11*WSIZE, 1));
     PUT(heap_ptr + 2, ep);
@@ -438,12 +389,14 @@ void *malloc (size_t size) {
 
     checkheap(1);
     bp = find_fit(a_size);
+    //If a fit is found, allocate that block.
     if(bp != NULL) {
 	place(bp, a_size);
 	checkheap(1);
 	return bp;
     }
    
+    //If not, extend heap
     e_size = MAX(a_size, CHUNKSIZE);
     bp = extend_heap(e_size/WSIZE);
     if(bp != NULL) {
@@ -485,8 +438,10 @@ void *realloc(void *oldptr, size_t size) {
     oldsize = block_size((uint32_t *)oldptr-1);
     size_t newsize = getMallocSize(size);
 
+    //Return the same pointer if the requested size is same as the size of the block
     if(newsize == oldsize)
 	return oldptr;
+    //If the requested size is smaller, return the same pointer after reducing block size and freeing the remaining part.
     else if((int)(oldsize - newsize) >= 2*DSIZE) {
 	uint32_t* oldheader = (uint32_t *)oldptr -1;
 	PUT(oldheader, PACK(newsize, 1));
@@ -524,7 +479,8 @@ void *calloc (size_t nmemb, size_t size) {
 // Returns 0 if no errors were found, otherwise returns the error
 int mm_checkheap(int verbose) {
     printf("\n\nCheckheap begins! Will print the segregated free list\n");
-    printf("List index from 1 to 9\n");
+    if(verbose)
+	printf("List index from 1 to 9\n");
     printf("Heap (%p):\n", (void *)heap_ptr);
     uint32_t *ptr = heap_ptr;
     unsigned int bsize;
@@ -549,6 +505,5 @@ int mm_checkheap(int verbose) {
 	}
     }
     printf("End of checkheap\n\n");
-    verbose = verbose;
     return 0;
 }
