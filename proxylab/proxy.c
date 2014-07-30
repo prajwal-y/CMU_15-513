@@ -22,6 +22,7 @@ int main(int argc, char **argv)
     char *haddrp;
     pthread_t tid;
 
+    //If port is not specified, give proper error message
     if (argc != 2) {
 	fprintf(stderr, "usage: %s <port>\n", argv[0]);
 	exit(0);
@@ -36,19 +37,15 @@ int main(int argc, char **argv)
 	hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
 	haddrp = inet_ntoa(clientaddr.sin_addr);
 	printf("server connected to %s (%s)\n", hp->h_name, haddrp);
-	//printf("connfd here is %d\n", *connfd);
-
+	//Make the server concurrent using threads.
 	Pthread_create(&tid, NULL, execute_job, connfd);
-	//process_request(connfd);
-
-	//Close(connfd);
     }
 
     return 0;
 }
 
+/*Each thread executes this function*/
 void *execute_job(void *arg) {
-    printf("job\n");
     Pthread_detach(pthread_self());
     int connfd = *((int *)arg);
     process_request(connfd);
@@ -57,6 +54,7 @@ void *execute_job(void *arg) {
     return 0;
 }
 
+/*This function parses the URI, and calls send_request() to forward the request to server*/
 void process_request(int connfd) {
     char buf[MAXLINE], method[MAXLINE], uri[MAXLINE], version[MAXLINE], host[MAXLINE], path[MAXLINE];
     rio_t rio;
@@ -78,6 +76,7 @@ void process_request(int connfd) {
     }
 
     sscanf(uri, "http://%s", host);
+
     char *h = strchr(host, '/');
     if (h != NULL) {
 	strcpy(path, h);
@@ -94,6 +93,12 @@ void process_request(int connfd) {
 
 }
 
+
+/* This function first checks the cache if the requested object is cached.
+ * If the object is cached, then gets the content from the cache.
+ * If not, then the request is forwarded to the server to get the content.
+ * Caching is done for response returned from the server.
+ * */
 void send_request(int fd, char *uri, char *host, char *path, int port) {
     char buf[MAXBUF], response[MAXBUF];
     struct cache *cached_node;

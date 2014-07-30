@@ -6,12 +6,14 @@
 struct cache *head, *tail;
 int free_cache_size;
 
+/*Initialize cache to an empty cache*/
 void initialize_cache() {
     head = NULL;
     tail = NULL;
     free_cache_size = MAX_CACHE_SIZE;
 }
 
+/*Insert a cache node at the beginning of the list. Following the LRU policy*/
 void insert(struct cache *node) {
     if(head == NULL) {
 	node->next = NULL;
@@ -27,6 +29,7 @@ void insert(struct cache *node) {
     }
 }
 
+/*Delete a cache node*/
 void delete(struct cache *node) {
     if((node == head) && (node == tail)) {
 	initialize_cache();
@@ -48,6 +51,7 @@ void delete(struct cache *node) {
     }
 }
 
+/*Get the cache node from a given URI*/
 struct cache *get_cache_item(char *uri) {
     struct cache *temp = head;
     while(temp != NULL) {
@@ -61,6 +65,7 @@ struct cache *get_cache_item(char *uri) {
     return NULL;
 }
 
+/*Create a cache node for given inputs, and place the node at the beginning of the list*/
 void put_cache_item(char *uri, char *content, int length) {
     struct cache *cache_node = (struct cache *)malloc(sizeof(struct cache));
 
