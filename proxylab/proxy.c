@@ -78,12 +78,11 @@ void process_request(int connfd) {
     sscanf(uri, "http://%s", host);
 
     char *h = strchr(host, '/');
+    char *p = strchr(host, ':');
     if (h != NULL) {
 	strcpy(path, h);
 	*h = '\0';
     }
-
-    char *p = strchr(host, ':');
     if (p != NULL) { 
 	port = atoi(p + 1);
 	*p = '\0';
