@@ -1,20 +1,33 @@
+/**
+ * Cache for web proxy. 
+ * Prajwal Yadapadithaya (pyadapad) and Abhinav KR (akuruvad)
+ *
+ * Cache is a doubly linked list with nodes as cache objects. LRU policy is followed by
+ * placing the cache node accessed at the beginning of the list. During eviction, the 
+ * tail node is removed.
+ **/
+
 #include<stdio.h>
 #include<string.h>
 #include<stdlib.h>
 #include "cache.h"
+#include "csapp.h"
 
 struct cache *head, *tail;
 int free_cache_size;
+pthread_rwlock_t lock;
 
 /*Initialize cache to an empty cache*/
 void initialize_cache() {
     head = NULL;
     tail = NULL;
     free_cache_size = MAX_CACHE_SIZE;
+    pthread_rwlock_init(&lock, NULL);
 }
 
-/*Insert a cache node at the beginning of the list. Following the LRU policy*/
+/*Insert a cache node at the beginning of the list.*/
 void insert(struct cache *node) {
+    pthread_rwlock_wrlock(&lock);
     if(head == NULL) {
 	node->next = NULL;
 	node->prev = NULL;
@@ -27,6 +40,8 @@ void insert(struct cache *node) {
 	head->prev = node;
 	head = node;
     }
+    free_cache_size -= node->length;
+    pthread_rwlock_unlock(&lock);
 }
 
 /*Delete a cache node*/
@@ -36,6 +51,7 @@ void delete(struct cache *node) {
 	free(node); 
     }
     else {
+	pthread_rwlock_wrlock(&lock);
 	if(node != head)
 	    node->prev->next = node->next;
 	else
@@ -48,20 +64,24 @@ void delete(struct cache *node) {
 
 	free_cache_size += node->length;
 	free(node);
+	pthread_rwlock_unlock(&lock);
     }
 }
 
 /*Get the cache node from a given URI*/
 struct cache *get_cache_item(char *uri) {
+    pthread_rwlock_rdlock(&lock);
     struct cache *temp = head;
     while(temp != NULL) {
 	if(!strcmp(temp->uri, uri)) {
+	    pthread_rwlock_unlock(&lock);
 	    delete(temp);
 	    insert(temp);
 	    return temp;
 	}
 	temp = temp->next;
     }
+    pthread_rwlock_unlock(&lock);
     return NULL;
 }
 
@@ -69,7 +89,7 @@ struct cache *get_cache_item(char *uri) {
 void put_cache_item(char *uri, char *content, int length) {
     struct cache *cache_node = (struct cache *)malloc(sizeof(struct cache));
 
-    cache_node->uri = malloc(256);
+    cache_node->uri = malloc(1024);
     strcpy(cache_node->uri, uri);
 
     cache_node->content = malloc(length);

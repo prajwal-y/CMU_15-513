@@ -1,3 +1,8 @@
+/** 
+ * Prajwal Yadapadithaya (Andrew ID: pyadapad)
+ * Abhinav KR (Andrew ID: akuruvad)
+ * */
+
 #include <stdio.h>
 #include "csapp.h"
 #include "cache.h"
@@ -6,6 +11,8 @@ void process_request(int connfd);
 void send_request(int fd, char *uri, char *host, char *path, int port);
 void sigpipe_handler(int signal);
 void *execute_job(void *arg);
+
+sem_t mutex;
 
 /* You won't lose style points for including these long lines in your code */
 static const char *user_agent_hdr = "User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:10.0.3) Gecko/20120305 Firefox/10.0.3\r\n";
@@ -18,8 +25,6 @@ int main(int argc, char **argv)
     int *connfd = malloc(sizeof(*connfd));
     socklen_t clientlen;
     struct sockaddr_in clientaddr;
-    struct hostent *hp;
-    char *haddrp;
     pthread_t tid;
 
     //If port is not specified, give proper error message
@@ -29,16 +34,15 @@ int main(int argc, char **argv)
     }
 
     Signal(SIGPIPE, sigpipe_handler);
+    Sem_init(&mutex, 0, 1);
     port = atoi(argv[1]);
     listenfd = Open_listenfd(port); 
     while(1) {
+	//P(&mutex);
 	clientlen = sizeof(clientaddr);
 	*connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
-	hp = Gethostbyaddr((const char *)&clientaddr.sin_addr.s_addr, sizeof(clientaddr.sin_addr.s_addr), AF_INET);
-	haddrp = inet_ntoa(clientaddr.sin_addr);
-	printf("server connected to %s (%s)\n", hp->h_name, haddrp);
-	//Make the server concurrent using threads.
-	Pthread_create(&tid, NULL, execute_job, connfd);
+	P(&mutex);
+	Pthread_create(&tid, NULL, execute_job, connfd); //Make the server concurrent using threads.
     }
 
     return 0;
@@ -46,10 +50,11 @@ int main(int argc, char **argv)
 
 /*Each thread executes this function*/
 void *execute_job(void *arg) {
+    V(&mutex);
     Pthread_detach(pthread_self());
     int connfd = *((int *)arg);
     process_request(connfd);
-    Close(connfd);
+    close(connfd);
     Pthread_exit(NULL);
     return 0;
 }
@@ -70,10 +75,10 @@ void process_request(int connfd) {
     }
 
     sscanf(buf, "%s %s %s", method, uri, version);
-    if(strcasecmp(method, "GET")) {
+    /*if(strcasecmp(method, "GET")) {
 	fprintf(stderr, "Method not implemented\n");
-	Close(connfd);
-    }
+	close(connfd);
+    }*/
 
     sscanf(uri, "http://%s", host);
 
@@ -104,7 +109,7 @@ void send_request(int fd, char *uri, char *host, char *path, int port) {
     int connfd, cache_item_size = 0;
     char cache_content[MAX_OBJECT_SIZE];
     rio_t rio;
-    
+ 
     cached_node = get_cache_item(uri);
     if(cached_node != NULL) {
 	printf("Cached object for for URI %s\n", uri);
@@ -112,10 +117,10 @@ void send_request(int fd, char *uri, char *host, char *path, int port) {
 	return;
     }
     
-    printf("\n Opening connection to remote server");
-    int server_fd = Open_clientfd(host, port);
+    printf("\n Opening connection to remote server\n");
+    int server_fd = open_clientfd_r(host, port);
     
-    if(server_fd < -1) {
+    if(server_fd <= -1) {
 	printf("Invalid file descriptor\n");
 	return;
     }
@@ -151,6 +156,7 @@ void send_request(int fd, char *uri, char *host, char *path, int port) {
 
 }
 
+//Ignores SIGPIPE signal
 void sigpipe_handler(int signal) {
     printf("Signal SIGPIPE recieved!\n");
     return;
