@@ -38,7 +38,6 @@ int main(int argc, char **argv)
     port = atoi(argv[1]);
     listenfd = Open_listenfd(port); 
     while(1) {
-	//P(&mutex);
 	clientlen = sizeof(clientaddr);
 	*connfd = Accept(listenfd, (SA *)&clientaddr, &clientlen);
 	P(&mutex);
