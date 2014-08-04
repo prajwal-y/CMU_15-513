@@ -27,7 +27,7 @@ int main(int argc, char **argv)
     struct sockaddr_in clientaddr;
     pthread_t tid;
 
-    //If port is not specified, give proper error message
+    //If port is not specified, error
     if (argc != 2) {
 	fprintf(stderr, "usage: %s <port>\n", argv[0]);
 	exit(0);
@@ -75,11 +75,6 @@ void process_request(int connfd) {
     }
 
     sscanf(buf, "%s %s %s", method, uri, version);
-    /*if(strcasecmp(method, "GET")) {
-	fprintf(stderr, "Method not implemented\n");
-	close(connfd);
-    }*/
-
     sscanf(uri, "http://%s", host);
 
     char *h = strchr(host, '/');
